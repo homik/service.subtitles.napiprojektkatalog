@@ -1,0 +1,2 @@
+1.0.0 - by homik 11/10/2017
+- first addon release
