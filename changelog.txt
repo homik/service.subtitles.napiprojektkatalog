@@ -1,2 +1,5 @@
+1.0.1 - by homik 18/10/2017
+- logging added
+
 1.0.0 - by homik 11/10/2017
 - first addon release

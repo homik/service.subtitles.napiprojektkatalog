@@ -4,12 +4,31 @@ import urllib, urllib2, base64, re
 from xml.dom import minidom
 import dom_parser
 import urlparse
+import xbmcaddon
+import xbmc
+import traceback
+
+__addon__ = xbmcaddon.Addon()
+__scriptname__ = __addon__.getAddonInfo('name')
 
 class NapiProjektKatalog:
     def __init__(self):
         self.download_url = "http://napiprojekt.pl/api/api-napiprojekt3.php"
         self.base_url = "http://www.napiprojekt.pl"
         self.search_url = "/ajax/search_catalog.php"
+
+    def log(self, msg=None, ex = None):
+        if ex : 
+            level = xbmc.LOGERROR
+            msg = traceback.format_exc()
+        else:
+            level = xbmc.LOGINFO
+        
+        xbmc.log((u"### [%s] - %s" % (__scriptname__, msg)).encode('utf-8'), level=level)
+
+
+    def notify(self, msg):
+        xbmc.executebuiltin((u'Notification(%s,%s)' % (__scriptname__, msg)).encode('utf-8'))
 
     def try_get_org_title(self, title):
         start_index = title.find("(")
@@ -18,52 +37,55 @@ class NapiProjektKatalog:
             return title[start_index + 1:end_index]
         return None
     
-    def find_subtitle_page(self, item):
-        try:
-            if not any((True for x in item["3let_language"] if x in ["pl", "pol"])):
-                return None
+    def find_subtitle_page(self, item):    
+        if not any((True for x in item["3let_language"] if x in ["pl", "pol"])):
+            self.log('Only polish supported')
+            self.notify('Only Polish supported')
+            return None
+        
+        if item['tvshow']:
+            title_to_find = item['tvshow']
+            query_kind = 1
+            query_year = ''
+        else:            
+            title_to_find = item['title']
+            query_kind = 2
+            query_year = item['year']
             
-            if item['tvshow']:
-                title_to_find = item['tvshow']
-                query_kind = 1
-                query_year = ''
-            else:            
-                title_to_find = item['title']
-                query_kind = 2
-                query_year = item['year']
-                
-            post = {'queryKind':query_kind,
-                'queryString':self.getsearch(title_to_find),
-                'queryYear':query_year,
-                'associate':''}
-            post = urllib.urlencode(post, doseq=True)
+        post = {'queryKind':query_kind,
+            'queryString':self.getsearch(title_to_find),
+            'queryYear':query_year,
+            'associate':''}
+        self.log('searching for movie: ' + str(post))
+        post = urllib.urlencode(post, doseq=True)
 
-            url = self.base_url + self.search_url
-            subs = urllib2.urlopen(url, data=post).read()
-            rows = self.parseDOM_base(subs, 'a', attrs={'class':'movieTitleCat'}) 
-            
-            clean_title = self.get_clean(title_to_find)
-            for row in rows:
-                title = self.parseDOM(row.content, 'h3')[0]
-                title = self.try_get_org_title(title)
-                if not title:
-                    title = row.attrs['tytul']
-                if self.get_clean(title) == clean_title:
-                    result = urlparse.urljoin(self.base_url, row.attrs['href'])
-                    if item['tvshow']:
-                        season = item['season']
-                        episode = item['episode']
-                        result += '-s' + season.zfill(2) + 'e' + episode.zfill(2)
-                    result = result.replace('napisy-', 'napisy1,1,1-dla-', 1).encode('utf-8')
-                    return result        
-        except:
-            pass
+        url = self.base_url + self.search_url
+        subs = urllib2.urlopen(url, data=post).read()
+        rows = self.parseDOM_base(subs, 'a', attrs={'class':'movieTitleCat'}) 
+        
+        clean_title = self.get_clean(title_to_find)
+        for row in rows:
+            title = self.parseDOM(row.content, 'h3')[0]
+            title = self.try_get_org_title(title)
+            if not title:
+                title = row.attrs['tytul']
+            if self.get_clean(title) == clean_title:
+                self.log('Found: ' + title)
+                result = urlparse.urljoin(self.base_url, row.attrs['href'])
+                if item['tvshow']:
+                    season = item['season']
+                    episode = item['episode']
+                    result += '-s' + season.zfill(2) + 'e' + episode.zfill(2)
+                result = result.replace('napisy-', 'napisy1,1,1-dla-', 1).encode('utf-8')
+                return result        
+
 
     def search(self, item):        
         subtitle_list = []
         try:
             url = self.find_subtitle_page(item)
-            page = urllib2.urlopen(url).read()
+            self.log('trying to get subtitles list')
+            page = urllib.urlopen(url).read()
             page = self.parseDOM(page, 'tbody')[0]
             rows = self.parseDOM(page, 'tr')
             for row in rows:
@@ -73,10 +95,11 @@ class NapiProjektKatalog:
                 cols.pop(0)
                 cols.pop()
                 label = ' | '.join(cols)
-                subtitle_list.append({'language':'pol', 'label':label, 'link_hash':link_hash})
+                subtitle_list.append({'language':'pol', 'label':label, 'link_hash':link_hash})            
         except Exception as e:
-            print e 
-            pass
+            self.notify('Search error, check log')
+            self.log(ex=e)
+        
         return subtitle_list
     
     def get_clean(self, title):
@@ -88,6 +111,7 @@ class NapiProjektKatalog:
         title = re.sub('&#(\d+);', '', title)
         title = re.sub('(&#[0-9]+)([^;^0-9]+)', '\\1;\\2', title)
         title = title.replace('&quot;', '\"').replace('&amp;', '&')
+        title = title.replace('&','and')
         title = re.sub('\n|([[].+?[]])|([(].+?[)])|\s(vs|v[.])\s|(:|;|-|–|"|,|\'|\_|\.|\?)|\s', '', title).lower()
         return title
     
@@ -125,6 +149,8 @@ class NapiProjektKatalog:
                 "downloaded_subtitles_txt": "1",
                 "downloaded_subtitles_lang": language
             }
+            
+            self.log('Downloading subs: ' + values)
     
             data = urllib.urlencode(values)
 
@@ -141,8 +167,10 @@ class NapiProjektKatalog:
                 open(filename, "w").write(text)
                 return filename
 
-        except:
+        except Exception as e:
+            self.notify('Download error, check log')
+            self.log(ex=e)
             pass
             
 
-        return False
+        return None
