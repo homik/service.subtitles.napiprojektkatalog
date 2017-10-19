@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*- 
 
 import os
+import re
 import sys
 import urllib
 import shutil
@@ -24,6 +25,10 @@ __temp__ = xbmc.translatePath(os.path.join(__profile__, 'temp', '')).decode("utf
 
 sys.path.append(__resource__)
 
+# sys.path.append("C:\\Program Files\\Brainwy\\LiClipse 3.6.0\\plugins\\org.python.pydev_5.7.0.201704111135\\pysrc")
+# import pydevd
+# pydevd.settrace('localhost', port=34099, stdoutToServer=True, stderrToServer=True, suspend=False)
+
 from NapiProjekt import NapiProjektKatalog
 
 def Search(item):
@@ -40,18 +45,18 @@ def Search(item):
                                     # language flag, ISO_639_1 language + gif extention, e.g - "en.gif"
                                     )
 
-        ## below arguments are optional, it can be used to pass any info needed in download function
-        ## anything after "action=download&" will be sent to addon once user clicks listed subtitle to download
+        # # below arguments are optional, it can be used to pass any info needed in download function
+        # # anything after "action=download&" will be sent to addon once user clicks listed subtitle to download
         url = "plugin://%s/?action=download&l=%s&f=%s&filename=%s" % (
             __scriptid__, result["language"], result['link_hash'], filename)
-        ## add it to list, this can be done as many times as needed for all subtitles found
+        # # add it to list, this can be done as many times as needed for all subtitles found
         xbmcplugin.addDirectoryItem(handle=int(sys.argv[1]), url=url, listitem=listitem, isFolder=False)
 
 
 def Download(language, hash, filename):
     subtitle_list = []
-    ## Cleanup temp dir, we recomend you download/unzip your subs in temp folder and
-    ## pass that to XBMC to copy and activate
+    # # Cleanup temp dir, we recomend you download/unzip your subs in temp folder and
+    # # pass that to XBMC to copy and activate
     if xbmcvfs.exists(__temp__):
         shutil.rmtree(__temp__)
     xbmcvfs.mkdirs(__temp__)
@@ -88,10 +93,46 @@ def get_params():
 
     return param
 
+def fill_item_from_name(name, item):
+    try:
+        tv = re.findall(r"""(.*)          # Title
+                            [ .]
+                            (?:S|s)(\d{1,2})    # Season
+                            (?:E|e)(\d{1,2})    # Episode
+                            [ .a-zA-Z]*  # Space, period, or words like PROPER/Buried
+                            (\d{3,4}p)?   # Quality
+                        """, name, re.VERBOSE | re.IGNORECASE)
+        if len(tv) > 0:
+            item['tvshow'] = tv[0][0].replace(".", " ")
+            item['season'] = str(int(tv[0][1]))
+            item['episode'] = str(int(tv[0][2]))
+        else:
+            movie = re.findall(r"""(.*?[ .]\d{4})  # Title including year
+                                   [ .a-zA-Z]*     # Space, period, or words
+                                   (\d{3,4}p)?      # Quality
+                                """, name, re.VERBOSE)
+            if len(movie) > 0:
+                title = movie[0][0].replace(".", " ")
+                if len(title) > 4:
+                    year = try_read_year(title)
+                    if(year):
+                        item['year'] = year
+                        title = title[:-4].strip()
+                item['title'] = title
+            else:
+                item['title'] = name
+    except Exception as e:
+        pass
 
+def try_read_year(title):
+    try:
+        year = title[-4:]
+        return str(int(year))        
+    except:
+        pass
 params = get_params()
 
-if params['action'] == 'search':
+if params['action'] == 'search' or params['action'] == 'manualsearch':
     item = {}
     item['temp'] = False
     item['rar'] = False
@@ -108,8 +149,10 @@ if params['action'] == 'search':
 
     for lang in urllib.unquote(params['languages']).decode('utf-8').split(","):
         item['3let_language'].append(xbmc.convertLanguage(lang, xbmc.ISO_639_2))
-
+    
+    possible_file = False    
     if item['title'] == "":
+        possible_file = True
         item['title'] = normalizeString(xbmc.getInfoLabel("VideoPlayer.Title"))  # no original title, get just Title
 
     if item['episode'].lower().find("s") > -1:  # Check if season is "Special"
@@ -126,15 +169,29 @@ if params['action'] == 'search':
     elif (item['file_original_path'].find("stack://") > -1):
         stackPath = item['file_original_path'].split(" , ")
         item['file_original_path'] = stackPath[0][8:]
+    
+    # if search string defined try filling data from search string
+    if params['action'] == 'manualsearch' and params.get('searchstring'):
+        possible_file=False      
+        search_string = urllib.unquote(params['searchstring'])
+        fill_item_from_name(search_string, item)
+        
+    # if no metadata then load from file
+    if possible_file and item['file_original_path']:
+        file_name = os.path.basename(item['file_original_path'])
+        if file_name == item['title']:
+            file_name = os.path.splitext(file_name)[0]
+            fill_item_from_name(file_name, item)
 
     Search(item)
 
+
 elif params['action'] == 'download':
-    ## we pickup all our arguments sent from def Search()
+    # # we pickup all our arguments sent from def Search()
     subs = Download(params["l"], params["f"], params["filename"])
-    ## we can return more than one subtitle for multi CD versions, for now we are still working out how to handle that in XBMC core
+    # # we can return more than one subtitle for multi CD versions, for now we are still working out how to handle that in XBMC core
     for sub in subs:
         listitem = xbmcgui.ListItem(label=sub)
         xbmcplugin.addDirectoryItem(handle=int(sys.argv[1]), url=sub, listitem=listitem, isFolder=False)
 
-xbmcplugin.endOfDirectory(int(sys.argv[1]))  ## send end of directory to XBMC
+xbmcplugin.endOfDirectory(int(sys.argv[1]))  # # send end of directory to XBMC

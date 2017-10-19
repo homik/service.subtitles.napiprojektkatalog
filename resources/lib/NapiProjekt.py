@@ -84,6 +84,9 @@ class NapiProjektKatalog:
         subtitle_list = []
         try:
             url = self.find_subtitle_page(item)
+            if not url:
+                self.notify('Movie not found')
+                return subtitle_list
             self.log('trying to get subtitles list')
             page = urllib.urlopen(url).read()
             page = self.parseDOM(page, 'tbody')[0]
@@ -113,6 +116,8 @@ class NapiProjektKatalog:
         title = title.replace('&quot;', '\"').replace('&amp;', '&')
         title = title.replace('&','and')
         title = re.sub('\n|([[].+?[]])|([(].+?[)])|\s(vs|v[.])\s|(:|;|-|–|"|,|\'|\_|\.|\?)|\s', '', title).lower()
+        if title.startswith('the'):
+            title = title[3:]
         return title
     
 
@@ -150,7 +155,7 @@ class NapiProjektKatalog:
                 "downloaded_subtitles_lang": language
             }
             
-            self.log('Downloading subs: ' + values)
+            self.log('Downloading subs: ' + str(values))
     
             data = urllib.urlencode(values)
 
