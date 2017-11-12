@@ -89,16 +89,19 @@ class NapiProjektKatalog:
                 return subtitle_list
             self.log('trying to get subtitles list')
             page = urllib.urlopen(url).read()
-            page = self.parseDOM(page, 'tbody')[0]
-            rows = self.parseDOM(page, 'tr')
-            for row in rows:
-                link_hash = self.parseDOM(row, 'a', ret='href')[0]
-                link_hash = link_hash.replace('napiprojekt:', '')
-                cols = self.parseDOM(row, 'p')
-                cols.pop(0)
-                cols.pop()
-                label = ' | '.join(cols)
-                subtitle_list.append({'language':'pol', 'label':label, 'link_hash':link_hash})            
+            page = self.parseDOM(page, 'tbody')
+            if len(page) > 0:
+                rows = self.parseDOM(page, 'tr')
+                for row in rows:
+                    link_hash = self.parseDOM(row, 'a', ret='href')[0]
+                    link_hash = link_hash.replace('napiprojekt:', '')
+                    cols = self.parseDOM(row, 'p')
+                    cols.pop(0)
+                    cols.pop()
+                    label = ' | '.join(cols)
+                    subtitle_list.append({'language':'pol', 'label':label, 'link_hash':link_hash})
+            else:
+                self.notify('No subtitles available')            
         except Exception as e:
             self.notify('Search error, check log')
             self.log(ex=e)
